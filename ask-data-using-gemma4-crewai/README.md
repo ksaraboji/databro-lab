@@ -4,7 +4,7 @@ This spike is a fully agentic data chat prototype using:
 
 - Gradio UI
 - CrewAI agent framework
-- Hugging Face Gemma endpoint (no fallback model)
+- Hugging Face Router or OpenRouter (selectable in UI)
 - DuckDB execution tool
 - Content-based file detection and format conversion
 
@@ -15,7 +15,7 @@ This spike is a fully agentic data chat prototype using:
 3. The workflow runs in two sequential CrewAI tasks:
 	- Task 1 inspects the file and returns the detected format plus schema.
 	- Task 2 uses that schema to decide whether to analyze, export, or convert.
-4. Agent sends the user query + schema context to the Hugging Face Gemma endpoint.
+4. Agent sends the user query + schema context to the selected LLM backend (Hugging Face Router or OpenRouter).
 5. Agent either generates DuckDB SQL or chooses a direct file conversion path.
 6. Agent decides how to execute based on intent:
 	- Returns table results for analytical questions.
@@ -41,6 +41,61 @@ No rule-based query routing or custom fallback logic is implemented.
 - Query results can be exported as `.csv` or `.json`.
 - Full file conversion supports `.csv`, `.json`, `.ndjson`, `.parquet`, and `.arrow`.
 
+## LLM Backend Selection
+
+The app supports two LLM backends, selectable directly in the Gradio UI:
+
+### Hugging Face Router
+- **Default models**: `google/gemma-4-31B-it`, `google/gemma-4-26B-A4B-it`
+- **Why use it**: Free tier available, good for prototyping
+- **Rate limits**: Shared queue; may experience delays during high traffic
+- **UI behavior**: Select `huggingface` in the **LLM Backend** dropdown, then pick a model from the **Model Name** dropdown
+
+### OpenRouter
+- **Default models**: `google/gemma-4-31b-it:free`, `google/gemma-4-26b-a4b-it:free`
+- **Why use it**: Unified API for many model providers, good for production
+- **Rate limits**: Per-account limits; typically higher throughput than HF Router
+- **UI behavior**: Select `openrouter` in the **LLM Backend** dropdown, then pick a model from the **Model Name** dropdown
+
+**Switching backends in the UI**:
+1. Upload a file.
+2. Open the **LLM Backend** dropdown and select `huggingface` or `openrouter`.
+3. The **Model Name** dropdown automatically updates to show models available for that backend.
+4. (Optional) Override the model if you want a different variant.
+5. Send your query. The agent will use the selected backend and model for that request.
+
+Each chat request uses the backend/model selected at send time, so you can switch mid-conversation.
+
+## Understanding the API Call Counter
+
+The chat panel displays a **Call Counter** showing how many LLM API attempts were made. This is important because the counter tracks **API calls**, not **chat requests**.
+
+### Why does one query result in multiple API calls?
+
+The agent runs two sequential CrewAI tasks:
+1. **Task 1 (Schema Inspection)**: Call `inspect_data_file` to detect format and extract schema.
+2. **Task 2 (Execution)**: Use schema context to decide the right path (analysis, export, conversion, or flatten) and execute it.
+
+Each task may trigger multiple LLM API attempts due to internal reasoning, retry logic, or JSON parsing. For example:
+- Schema task: 1–2 API calls (inspect + validation)
+- Execution task: 2–3 API calls (planning + execution + fallback)
+
+**Result**: A typical single user query can trigger **4–6 API calls** total. This aligns with what you see on provider dashboards (Hugging Face Router or OpenRouter API logs).
+
+### Example
+
+You ask: *"What is the average value column in this CSV?"*
+
+- Call 1: Schema task attempts to inspect the file.
+- Call 2: Schema task completes and returns schema.
+- Call 3: Execution task analyzes intent and plans SQL.
+- Call 4: Execution task executes the SQL and returns the result.
+- (Calls 5–6 may occur if retries or validation steps are triggered.)
+
+**Counter display**: Shows `4–6` for this single query.
+
+Do not be alarmed if the counter shows 4+ for a single question—it reflects actual LLM API usage, which helps you monitor token usage and costs across backends.
+
 ## Setup
 
 1. Create and activate a Python environment.
@@ -50,13 +105,38 @@ No rule-based query routing or custom fallback logic is implemented.
 pip install -r requirements.txt
 ```
 
-3. Set a Hugging Face token and model name:
+3. Configure environment variables. Copy the example file and fill in your credentials:
 
 ```bash
-export HF_API_TOKEN=your_hugging_face_token
-export HF_MODEL_NAME=google/gemma-4-31B-it
-export HF_BASE_URL=https://router.huggingface.co/v1
+cp .env.example .env
 ```
+
+Edit `.env` and configure **at least one backend**:
+
+**Shared settings**:
+```bash
+# Backend to use by default when the app starts
+LLM_BACKEND=huggingface
+
+# Token limit for all LLM calls
+LLM_MAX_TOKENS=2048
+```
+
+**Hugging Face Router** (required if using HF):
+```bash
+HF_API_TOKEN=your_hugging_face_api_token
+HF_MODEL_NAME=google/gemma-4-31B-it
+HF_BASE_URL=https://router.huggingface.co/v1
+```
+
+**OpenRouter** (required if using OpenRouter):
+```bash
+OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_MODEL_NAME=google/gemma-4-31b-it:free
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+```
+
+You can configure both backends and switch between them in the UI, or just configure the one(s) you plan to use.
 
 4. Start the app:
 
@@ -64,17 +144,21 @@ export HF_BASE_URL=https://router.huggingface.co/v1
 python app.py
 ```
 
-Open http://localhost:7860
+Open http://localhost:7860 in your browser.
 
-Use the chat panel for follow-up questions on the same uploaded file. If you ask for an updated output file, it appears in the "Generated file (when requested)" section.
+### Using the app
 
-If you explicitly ask for a preview, head rows, or a sample, the agent includes the first 10 rows in the chat response as a markdown table rendered with `tabulate`.
+- **Upload a file**: Select CSV, JSON, NDJSON, Parquet, or Arrow format.
+- **Choose backend & model**: Use the **LLM Backend** and **Model Name** dropdowns to select your preferred LLM backend.
+- **Ask questions**: Type your query in the chat box and press Enter. The agent will inspect the file schema and answer.
+- **Track API usage**: Watch the **Call Counter** to see how many LLM API calls were made (typically 4–6 per query).
+- **Follow-up questions**: Ask multiple questions on the same file without re-uploading.
+- **Export results**: Ask the agent to export filtered/transformed data as CSV or JSON. The download link appears in the chat response.
+- **Convert formats**: Ask to convert the file (e.g., "convert to parquet", "save as CSV"). The agent returns a downloadable file path.
+- **Preview data**: Ask to see the first 10 rows (e.g., "show me the head", "preview this data"). The agent returns a markdown table.
+- **Flatten nested JSON**: For nested JSON/NDJSON files, ask to flatten (e.g., "flatten the JSON", "expand nested fields", "show nested attributes as columns"). The agent expands nested structures into dot-path columns.
 
-The app also includes a colored UI header, a footer link to <https://databro.dev>, and Gradio share mode enabled so it can generate a public link when launched.
-
-If you ask to convert the file, for example "convert this parquet file to csv" or "save as ndjson", the agent uses the conversion tool and returns a downloadable file path.
-
-If you ask to flatten nested JSON attributes, for example "flatten the JSON", "expand nested fields", or "show nested attributes as columns", the agent calls the `flatten_nested_json` tool and returns a dot-path column preview. For all other queries, nested attributes are accessed directly using DuckDB dot-path SQL syntax (e.g. `user.address.city`).
+The app includes a colored UI header and a footer link to <https://databro.dev>. Gradio share mode is enabled, so launching the app generates a temporary public link for sharing.
 
 ## Run From GitHub
 
@@ -94,11 +178,19 @@ pip install -r requirements.txt
 
 4. Configure environment variables:
 
+Copy `.env.example` to `.env` and fill in your credentials for at least one backend:
+
 ```bash
-export HF_API_TOKEN=your_hugging_face_token
-export HF_MODEL_NAME=google/gemma-4-31B-it
-export HF_BASE_URL=https://router.huggingface.co/v1
+cp .env.example .env
+
+# Edit and configure:
+# - LLM_BACKEND (huggingface or openrouter)
+# - LLM_MAX_TOKENS (shared token limit)
+# - HF_API_TOKEN, HF_MODEL_NAME, HF_BASE_URL (Hugging Face)
+# - OPENROUTER_API_KEY, OPENROUTER_MODEL_NAME, OPENROUTER_BASE_URL (OpenRouter)
 ```
+
+See [Setup](#setup) above for complete configuration details.
 
 5. Launch the app:
 

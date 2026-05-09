@@ -1,6 +1,11 @@
 # Python bytecode and cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
+
+# VS Code workspace settings (any level)
+.vscode/
+**/.vscode/
 
 # Local environment files
 .env

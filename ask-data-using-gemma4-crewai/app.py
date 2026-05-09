@@ -8,29 +8,81 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 from src.agent_workflow import (
     get_call_count,
+    get_default_llm_backend,
     get_hf_api_key,
     get_hf_base_url,
     get_hf_model_name,
+    get_openrouter_api_key,
+    get_openrouter_base_url,
+    get_openrouter_model_name,
     run_agentic_query,
 )
 
 
-def get_huggingface_status() -> str:
-    model_name = get_hf_model_name()
-    hf_token = get_hf_api_key()
-    hf_base_url = get_hf_base_url()
+HF_MODEL_OPTIONS = [
+    "google/gemma-4-31B-it",
+    "google/gemma-4-26B-A4B-it",
+]
 
-    if not hf_token:
+OPENROUTER_MODEL_OPTIONS = [
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+]
+
+
+def _status_for_backend(backend: str) -> str:
+    if backend == "openrouter":
+        model_name = get_openrouter_model_name()
+        token = get_openrouter_api_key()
+        base_url = get_openrouter_base_url()
+        if not token:
+            return (
+                "### OpenRouter Status\n"
+                f"Configured for `{model_name}` via `{base_url}`, but no OpenRouter token was loaded.\n\n"
+                "Set `OPENROUTER_API_KEY` in the `.env` file before submitting."
+            )
         return (
-            "### Hugging Face Status\n"
-            f"Configured for `{model_name}` via `{hf_base_url}`, but no Hugging Face token was loaded.\n\n"
-            "Set `HF_API_TOKEN` or `HF_TOKEN` in the `.env` file before submitting."
+            "### OpenRouter Status\n"
+            f"Configured for `{model_name}` via `{base_url}` with an OpenRouter token loaded."
         )
 
+    model_name = get_hf_model_name()
+    token = get_hf_api_key()
+    base_url = get_hf_base_url()
+    if not token:
+        return (
+            "### Hugging Face Status\n"
+            f"Configured for `{model_name}` via `{base_url}`, but no Hugging Face token was loaded.\n\n"
+            "Set `HF_API_TOKEN` or `HF_TOKEN` in the `.env` file before submitting."
+        )
     return (
         "### Hugging Face Status\n"
-        f"Configured for `{model_name}` via `{hf_base_url}` with a Hugging Face token loaded."
+        f"Configured for `{model_name}` via `{base_url}` with a Hugging Face token loaded."
     )
+
+
+def get_backend_status(selected_backend: str) -> str:
+    backend = (selected_backend or get_default_llm_backend()).strip().lower()
+    return _status_for_backend(backend)
+
+
+def get_default_model_for_backend(selected_backend: str) -> str:
+    backend = (selected_backend or get_default_llm_backend()).strip().lower()
+    if backend == "openrouter":
+        configured = get_openrouter_model_name()
+        return configured if configured in OPENROUTER_MODEL_OPTIONS else OPENROUTER_MODEL_OPTIONS[0]
+    configured = get_hf_model_name()
+    return configured if configured in HF_MODEL_OPTIONS else HF_MODEL_OPTIONS[0]
+
+
+def get_model_options_for_backend(selected_backend: str) -> list[str]:
+    backend = (selected_backend or get_default_llm_backend()).strip().lower()
+    return OPENROUTER_MODEL_OPTIONS if backend == "openrouter" else HF_MODEL_OPTIONS
+
+
+def get_model_dropdown_update(selected_backend: str):
+    options = get_model_options_for_backend(selected_backend)
+    return gr.update(choices=options, value=get_default_model_for_backend(selected_backend))
 
 
 def _extract_download_path(response_text: str) -> str | None:
@@ -47,7 +99,7 @@ def get_counter_display() -> str:
     return f"🤖 **Gemma4 API calls this session:** `{count}`"
 
 
-def chat_with_file(message: str, history, file_obj):
+def chat_with_file(message: str, history, file_obj, llm_backend: str, llm_model: str):
     if not file_obj:
         return "Please upload a supported file before asking questions.", None
     if not message.strip():
@@ -55,17 +107,25 @@ def chat_with_file(message: str, history, file_obj):
 
     file_path = file_obj
     try:
-        response_text = run_agentic_query(file_path=file_path, user_query=message)
+        backend = (llm_backend or get_default_llm_backend()).strip().lower()
+        model_override = (llm_model or "").strip() or None
+        response_text = run_agentic_query(
+            file_path=file_path,
+            user_query=message,
+            llm_backend=backend,
+            model_override=model_override,
+        )
         return response_text, _extract_download_path(response_text)
     except Exception as exc:
         error_text = str(exc)
+
         if "504" in error_text or "Gateway Timeout" in error_text:
             error_text += (
-                "\n\nHugging Face endpoint timed out. Retry, or try a smaller/faster Gemma model in `HF_MODEL_NAME`."
+                "\n\nLLM endpoint timed out. Retry, or try a smaller/faster model for the selected backend."
             )
         return (
             "The agent could not complete the request. "
-            "Ensure a Hugging Face token is set and the model name is valid.\n\n"
+            "Ensure the selected backend token is set and the model name is valid.\n\n"
             f"Error: {error_text}"
         ), None
 
@@ -148,11 +208,23 @@ with gr.Blocks(
     gr.Markdown(
         "<div id='hero-banner'>"
         "<h1>✨ Chat with Your Data | Gemma4 + CrewAI</h1>"
-        "<p>Upload CSV, JSON, NDJSON, Parquet, or Arrow files. Ask questions, export results, or convert formats with an agentic workflow.</p>"
+        "<p>Upload CSV, JSON, NDJSON, Parquet, or Arrow files. Choose Hugging Face or OpenRouter, then ask questions, export results, or convert formats with an agentic workflow.</p>"
         "</div>"
     )
     huggingface_status = gr.Markdown(elem_id="status-card")
     call_counter = gr.Markdown(elem_id="status-card", value="🤖 **Gemma4 API calls this session:** `0`")
+    llm_backend = gr.Dropdown(
+        choices=["huggingface", "openrouter"],
+        value=get_default_llm_backend(),
+        label="LLM Backend",
+        info="Choose which API gateway to use for model calls.",
+    )
+    llm_model = gr.Dropdown(
+        choices=get_model_options_for_backend(get_default_llm_backend()),
+        value=get_default_model_for_backend(get_default_llm_backend()),
+        label="Model Name",
+        info="Select a model for the selected backend.",
+    )
     file_input = gr.File(label="Upload CSV, JSON, NDJSON, Parquet, or Arrow", type="filepath")
     download_output = gr.File(label="Generated file (when requested)")
     gr.Markdown("Start chatting below after uploading a file.")
@@ -165,13 +237,19 @@ with gr.Blocks(
             submit_btn=True,
             autofocus=True,
         ),
-        additional_inputs=[file_input],
+        additional_inputs=[file_input, llm_backend, llm_model],
         additional_outputs=[download_output],
         title="Data Chat",
         description="Ask multiple questions about the uploaded file in conversation style. When you ask for an updated file, the generated file appears below.",
     )
 
-    interface.load(fn=get_huggingface_status, outputs=huggingface_status)
+    interface.load(
+        fn=lambda backend: get_backend_status(backend),
+        inputs=llm_backend,
+        outputs=huggingface_status,
+    )
+    llm_backend.change(fn=get_backend_status, inputs=llm_backend, outputs=huggingface_status)
+    llm_backend.change(fn=get_model_dropdown_update, inputs=llm_backend, outputs=llm_model)
     interface.load(fn=get_counter_display, outputs=call_counter)
     chat.chatbot.change(fn=get_counter_display, outputs=call_counter)
 

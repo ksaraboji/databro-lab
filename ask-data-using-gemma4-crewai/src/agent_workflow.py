@@ -2,11 +2,37 @@ import os
 import threading
 
 from crewai import Agent, Crew, LLM, Process, Task
+from crewai.events.event_bus import crewai_event_bus
+from crewai.events.types.llm_events import LLMCallCompletedEvent, LLMCallFailedEvent
 
 from .tools import export_duckdb_sql_result, inspect_data_file, run_duckdb_sql, convert_file_format, flatten_nested_json
 
 _call_counter: int = 0
 _call_counter_lock = threading.Lock()
+_callbacks_registered = False
+
+
+def _increment_call_counter() -> None:
+    global _call_counter
+    with _call_counter_lock:
+        _call_counter += 1
+
+
+def _ensure_counter_callbacks() -> None:
+    global _callbacks_registered
+    with _call_counter_lock:
+        if _callbacks_registered:
+            return
+
+        @crewai_event_bus.on(LLMCallCompletedEvent)
+        def _on_llm_call_completed(source, event):
+            _increment_call_counter()
+
+        @crewai_event_bus.on(LLMCallFailedEvent)
+        def _on_llm_call_failed(source, event):
+            _increment_call_counter()
+
+        _callbacks_registered = True
 
 
 def get_call_count() -> int:
@@ -29,19 +55,64 @@ def get_hf_base_url() -> str:
     return os.getenv("HF_BASE_URL", "https://router.huggingface.co/v1")
 
 
-def run_agentic_query(file_path: str, user_query: str) -> str:
-    global _call_counter
-    with _call_counter_lock:
-        _call_counter += 1
-    model_name = get_hf_model_name()
-    hf_token = get_hf_api_key()
-    hf_base_url = get_hf_base_url()
+def get_openrouter_api_key() -> str | None:
+    return os.getenv("OPENROUTER_API_KEY")
+
+
+def get_openrouter_model_name() -> str:
+    return os.getenv("OPENROUTER_MODEL_NAME", "google/gemma-4-31b-it:free")
+
+
+def get_openrouter_base_url() -> str:
+    return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+
+def get_default_llm_backend() -> str:
+    backend = os.getenv("LLM_BACKEND", "huggingface").strip().lower()
+    return backend if backend in {"huggingface", "openrouter"} else "huggingface"
+
+
+def get_max_tokens() -> int:
+    value = os.getenv("LLM_MAX_TOKENS", os.getenv("HF_MAX_TOKENS", "2048"))
+    try:
+        return max(256, int(value))
+    except ValueError:
+        return 2048
+
+
+def resolve_llm_config(llm_backend: str | None = None, model_override: str | None = None) -> tuple[str, str | None, str]:
+    backend = (llm_backend or get_default_llm_backend()).strip().lower()
+    if backend == "openrouter":
+        model_name = (model_override or get_openrouter_model_name()).strip()
+        return model_name, get_openrouter_api_key(), get_openrouter_base_url()
+
+    model_name = (model_override or get_hf_model_name()).strip()
+    if model_name.startswith("huggingface/"):
+        model_name = model_name.removeprefix("huggingface/")
+    return model_name, get_hf_api_key(), get_hf_base_url()
+
+
+def run_agentic_query(
+    file_path: str,
+    user_query: str,
+    llm_backend: str | None = None,
+    model_override: str | None = None,
+) -> str:
+    _ensure_counter_callbacks()
+
+    model_name, api_key, base_url = resolve_llm_config(
+        llm_backend=llm_backend,
+        model_override=model_override,
+    )
+    max_tokens = get_max_tokens()
+
     llm = LLM(
         model=model_name,
-        api_key=hf_token,
-        base_url=hf_base_url,
+        api_key=api_key,
+        base_url=base_url,
         provider="openai",
         temperature=0,
+        max_tokens=max_tokens,
     )
 
     analyst = Agent(
