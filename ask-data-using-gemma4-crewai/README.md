@@ -1,6 +1,6 @@
-# CSV/JSON/Parquet/Arrow Agentic SQL Prototype
+# Ask Data Using Gemma4 + CrewAI
 
-This prototype is a simple, fully agentic workflow using:
+This spike is a fully agentic data chat prototype using:
 
 - Gradio UI
 - CrewAI agent framework
