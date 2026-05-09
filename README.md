@@ -4,8 +4,9 @@ This repository is a container for multiple spike projects and prototypes.
 
 ## Prototypes
 
-- `ask-data-using-gemma4-crewai/`
-  Agentic data chat prototype built with Gradio, CrewAI, DuckDB, and Hugging Face Gemma.
+| Spike | Folder | Summary | README |
+| --- | --- | --- | --- |
+| Ask Data Using Gemma4 + CrewAI | `ask-data-using-gemma4-crewai/` | Agentic data chat prototype built with Gradio, CrewAI, DuckDB, and Hugging Face Gemma. | [Open](ask-data-using-gemma4-crewai/README.md) |
 
 ## Working With A Prototype
 
