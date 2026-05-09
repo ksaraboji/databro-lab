@@ -76,7 +76,41 @@ If you ask to convert the file, for example "convert this parquet file to csv" o
 
 If you ask to flatten nested JSON attributes, for example "flatten the JSON", "expand nested fields", or "show nested attributes as columns", the agent calls the `flatten_nested_json` tool and returns a dot-path column preview. For all other queries, nested attributes are accessed directly using DuckDB dot-path SQL syntax (e.g. `user.address.city`).
 
-If you ask to flatten nested JSON attributes, for example "flatten the JSON", "expand nested fields", or "show nested attributes as columns", the agent calls the `flatten_nested_json` tool and returns a dot-path column preview. For all other queries, nested attributes are accessed directly using DuckDB dot-path SQL syntax (e.g. `user.address.city`).
+## Run From GitHub
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/ksaraboji/databro-lab.git
+cd databro-lab
+```
+
+2. Create and activate a virtual environment.
+3. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+4. Configure environment variables:
+
+```bash
+export HF_API_TOKEN=your_hugging_face_token
+export HF_MODEL_NAME=google/gemma-4-31B-it
+export HF_BASE_URL=https://router.huggingface.co/v1
+```
+
+5. Launch the app:
+
+```bash
+python app.py
+```
+
+## Sharing And Deployment
+
+- For temporary sharing, the app already launches with Gradio `share=True`, which generates a public `gradio.live` URL while the process is running.
+- For a more stable hosted setup, deploy the repo to Hugging Face Spaces or another Python hosting target and provide the same environment variables there.
+- Keep `.env` local only. It is ignored by git and should not be committed.
 
 ## Workflow details
 
