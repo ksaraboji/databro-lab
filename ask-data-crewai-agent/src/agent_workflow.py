@@ -111,40 +111,36 @@ def resolve_llm_config(llm_backend: str | None = None, model_override: str | Non
     return model_name, get_hf_api_key(), get_hf_base_url()
 
 
-def run_agentic_query(
-    file_path: str,
-    user_query: str,
-    llm_backend: str | None = None,
-    model_override: str | None = None,
-) -> str:
-    _ensure_counter_callbacks()
-
-    backend = (llm_backend or get_default_llm_backend()).strip().lower()
-
+def _build_llm(backend: str, model_override: str | None) -> LLM:
     model_name, api_key, base_url = resolve_llm_config(
         llm_backend=backend,
         model_override=model_override,
     )
     max_tokens = get_max_tokens()
 
+    if backend in {"huggingface", "openrouter"} and not api_key:
+        raise ValueError(f"{backend} backend requires its API key in .env before starting chat.")
+
     if backend == "ollama":
-        llm = LLM(
+        return LLM(
             model=model_name,
             base_url=base_url,
-            temperature=0,
-            max_tokens=max_tokens,
-        )
-    else:
-        llm = LLM(
-            model=model_name,
-            api_key=api_key,
-            base_url=base_url,
-            provider="openai",
             temperature=0,
             max_tokens=max_tokens,
         )
 
-    analyst = Agent(
+    return LLM(
+        model=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        provider="openai",
+        temperature=0,
+        max_tokens=max_tokens,
+    )
+
+
+def _build_agent(llm: LLM) -> Agent:
+    return Agent(
         role="DuckDB Data Analyst",
         goal="Answer user questions by creating and running DuckDB SQL on uploaded CSV, JSON, NDJSON, Parquet, or Arrow data. Also convert files between formats when requested.",
         backstory=(
@@ -158,9 +154,8 @@ def run_agentic_query(
         verbose=True,
     )
 
-    # Task 1: Schema Inspection
-    # Deterministic — always calls inspect_data_file and returns file type + schema.
-    # No SQL, no decisions. Just discovery.
+
+def _build_crew(agent: Agent) -> Crew:
     schema_task = Task(
         description=(
             "File path: {file_path}\n\n"
@@ -174,12 +169,9 @@ def run_agentic_query(
             "- schema: a list of columns with name and type\n"
             "Do not include anything else."
         ),
-        agent=analyst,
+        agent=agent,
     )
 
-    # Task 2: Execution
-    # Uses schema from Task 1 to decide the right tool and execute it.
-    # Three exclusive paths: SQL analysis, SQL export, or format conversion.
     execution_task = Task(
         description=(
             "File path: {file_path}\n"
@@ -214,16 +206,30 @@ def run_agentic_query(
             "- Any count in the answer must come from SQL COUNT(*) output, not estimates\n"
             "- If requested, include a first-10-row preview as a markdown table"
         ),
-        agent=analyst,
+        agent=agent,
         context=[schema_task],
     )
 
-    crew = Crew(
-        agents=[analyst],
+    return Crew(
+        agents=[agent],
         tasks=[schema_task, execution_task],
-        process=Process.sequential,  # schema_task always runs before execution_task
+        process=Process.sequential,
         verbose=True,
     )
+
+
+def run_agentic_query(
+    file_path: str,
+    user_query: str,
+    llm_backend: str | None = None,
+    model_override: str | None = None,
+) -> str:
+    _ensure_counter_callbacks()
+
+    backend = (llm_backend or get_default_llm_backend()).strip().lower()
+    llm = _build_llm(backend=backend, model_override=model_override)
+    agent = _build_agent(llm)
+    crew = _build_crew(agent)
 
     response = crew.kickoff(inputs={"file_path": file_path, "user_query": user_query})
     return str(response)

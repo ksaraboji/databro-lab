@@ -73,6 +73,8 @@ The app supports three LLM backends, selectable directly in the Gradio UI:
 
 Each chat request uses the backend/model selected at send time, so you can switch mid-conversation.
 
+Each query is executed statelessly: the app creates a fresh Crew for the request and does not persist Crew memory between turns.
+
 ## Understanding the API Call Counter
 
 The chat panel displays a **Call Counter** showing how many LLM API attempts were made. This is important because the counter tracks **API calls**, not **chat requests**.

@@ -37,9 +37,11 @@ OLLAMA_MODEL_OPTIONS = [
 ]
 
 
-def _status_for_backend(backend: str) -> str:
+def _status_for_backend(backend: str, selected_model: str | None = None) -> str:
+    active_model = (selected_model or "").strip()
+
     if backend == "ollama":
-        model_name = get_ollama_model_name()
+        model_name = active_model or get_ollama_model_name()
         base_url = get_ollama_base_url()
         return (
             "### Ollama Status\n"
@@ -48,7 +50,7 @@ def _status_for_backend(backend: str) -> str:
         )
 
     if backend == "openrouter":
-        model_name = get_openrouter_model_name()
+        model_name = active_model or get_openrouter_model_name()
         token = get_openrouter_api_key()
         base_url = get_openrouter_base_url()
         if not token:
@@ -62,7 +64,7 @@ def _status_for_backend(backend: str) -> str:
             f"Configured for `{model_name}` via `{base_url}` with an OpenRouter token loaded."
         )
 
-    model_name = get_hf_model_name()
+    model_name = active_model or get_hf_model_name()
     token = get_hf_api_key()
     base_url = get_hf_base_url()
     if not token:
@@ -77,9 +79,9 @@ def _status_for_backend(backend: str) -> str:
     )
 
 
-def get_backend_status(selected_backend: str) -> str:
+def get_backend_status(selected_backend: str, selected_model: str | None = None) -> str:
     backend = (selected_backend or get_default_llm_backend()).strip().lower()
-    return _status_for_backend(backend)
+    return _status_for_backend(backend, selected_model)
 
 
 def get_default_model_for_backend(selected_backend: str) -> str:
@@ -118,10 +120,6 @@ def _extract_download_path(response_text: str) -> str | None:
 def get_counter_display() -> str:
     count = get_call_count()
     return f"🤖 **Gemma4 API calls this session:** `{count}`"
-
-
-def end_chat_session():
-    return [], None, "### Chat ended\nStart a new chat by uploading a file and asking a question."
 
 
 def chat_with_file(message: str, history, file_obj, llm_backend: str, llm_model: str):
@@ -169,6 +167,10 @@ def chat_with_file(message: str, history, file_obj, llm_backend: str, llm_model:
             "Ensure the selected backend token is set and the model name is valid.\n\n"
             f"Error: {error_text}"
         ), None
+
+
+def reset_chat_session():
+    return [], None, "### Chat ended\nStart a new chat by uploading a file and asking a question."
 
 
 ui_css = """
@@ -376,16 +378,17 @@ with gr.Blocks(
                 gr.Markdown("<div id='session-note' class='control-help'>End Chat clears conversation history and generated-file output.</div>")
 
     interface.load(
-        fn=lambda backend: get_backend_status(backend),
-        inputs=llm_backend,
+        fn=get_backend_status,
+        inputs=[llm_backend, llm_model],
         outputs=huggingface_status,
     )
-    llm_backend.change(fn=get_backend_status, inputs=llm_backend, outputs=huggingface_status)
+    llm_backend.change(fn=get_backend_status, inputs=[llm_backend, llm_model], outputs=huggingface_status)
     llm_backend.change(fn=get_model_dropdown_update, inputs=llm_backend, outputs=llm_model)
+    llm_model.change(fn=get_backend_status, inputs=[llm_backend, llm_model], outputs=huggingface_status)
     interface.load(fn=get_counter_display, outputs=call_counter)
     chat.chatbot.change(fn=get_counter_display, outputs=call_counter)
     end_chat_btn.click(
-        fn=end_chat_session,
+        fn=reset_chat_session,
         outputs=[chat.chatbot, download_output, session_note],
     )
 
