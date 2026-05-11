@@ -4,5 +4,4 @@ gradio
 pandas
 tabulate
 python-dotenv
-litellm
 pyarrow

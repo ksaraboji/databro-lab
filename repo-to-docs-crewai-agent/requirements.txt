@@ -1,7 +1,4 @@
 crewai
-crewai-tools
 gradio
 python-dotenv
 GitPython
-PyYAML
-litellm

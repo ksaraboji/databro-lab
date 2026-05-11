@@ -5,7 +5,7 @@ Generate comprehensive technical documentation from GitHub repositories using Cr
 ## What it does
 
 1. User provides a GitHub repository URL (optionally pointing to a specific folder).
-2. CrewAI agent fetches the repository and analyzes:
+2. A multi-agent CrewAI workflow fetches the repository and analyzes:
    - Repository structure and components
    - Technology stack (languages, frameworks, databases, tools)
    - Dependencies and package managers
@@ -33,7 +33,13 @@ File detection is based on directory structure and package manager files, with s
 
 ## Workflow
 
-The CrewAI crew runs with `Process.sequential` to ensure logical progression:
+The CrewAI crew runs with `Process.sequential` and three specialized agents to ensure logical progression:
+
+1. **Repository Analysis Specialist**: Handles cloning, structure review, entry points, and dependency/stack analysis
+2. **Architecture and Flow Specialist**: Produces architecture and flow diagrams from the analysis context
+3. **Documentation Compiler**: Produces the final comprehensive markdown output
+
+Task sequence:
 
 1. **Clone & Structure Task**: Clone repository, list structure, identify entry points
 2. **Tech Stack Task**: Analyze dependencies and detect technology stack
@@ -58,6 +64,15 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+Runtime dependencies are intentionally minimal:
+
+- CrewAI
+- Gradio
+- python-dotenv
+- GitPython
+
+Note: Some transitive packages (for example LiteLLM and YAML tooling) are installed via core dependencies and are not pinned directly in this project.
+
 ### 3. Configure environment variables
 
 ```bash
@@ -71,8 +86,8 @@ Edit `.env` and configure **at least one backend**:
 # Backend to use by default when the app starts
 LLM_BACKEND=huggingface
 
-# Token limit for all LLM calls (optional, default: 2048)
-LLM_MAX_TOKENS=2048
+# Token limit for all LLM calls (optional, default: 8192)
+LLM_MAX_TOKENS=8192
 ```
 
 **Hugging Face Router** (required if using HF):
@@ -207,7 +222,7 @@ python app.py
 
 ## Technical architecture
 
-- **Framework**: CrewAI 0.102.0+ with five sequential tasks
+- **Framework**: CrewAI 0.102.0+ with three specialized agents and five sequential tasks
 - **LLM Backends**:
   - Hugging Face: `google/gemma-4-31B-it`, `google/gemma-4-26B-A4B-it`
   - OpenRouter: `google/gemma-4-31b-it:free`, `google/gemma-4-26b-a4b-it:free`

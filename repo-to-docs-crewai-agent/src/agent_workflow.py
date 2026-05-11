@@ -5,7 +5,6 @@ CrewAI workflow for generating technical documentation from GitHub repositories.
 import os
 import shutil
 import threading
-from pathlib import Path
 
 from crewai import Agent, Crew, LLM, Process, Task
 from crewai.events.event_bus import crewai_event_bus
@@ -112,11 +111,11 @@ def get_default_llm_backend() -> str:
 
 
 def get_max_tokens() -> int:
-    value = os.getenv("LLM_MAX_TOKENS", os.getenv("HF_MAX_TOKENS", "2048"))
+    value = os.getenv("LLM_MAX_TOKENS", os.getenv("HF_MAX_TOKENS", "8192"))
     try:
         return max(512, int(value))
     except ValueError:
-        return 2048
+        return 8192
 
 
 def resolve_llm_config(
@@ -181,15 +180,13 @@ def generate_technical_docs(
             max_tokens=max_tokens,
         )
 
-    doc_analyst = Agent(
-        role="Technical Documentation Specialist",
-        goal="Generate clear, comprehensive technical documentation from GitHub repository analysis including architecture diagrams, flow diagrams, tech stack, and dependency information.",
+    repo_analyst = Agent(
+        role="Repository Analysis Specialist",
+        goal="Analyze repository structure, entry points, tech stack, and dependencies with high factual accuracy.",
         backstory=(
-            "You are an expert technical writer who specializes in creating "
-            "low-level technical documentation. You excel at analyzing code repositories, "
-            "understanding architectures, and explaining technical concepts clearly. "
-            "You create Mermaid diagrams for architecture, data flows, and component relationships. "
-            "You provide detailed information about libraries, frameworks, databases, and tools used."
+            "You are a repository reverse-engineering expert. You inspect project layout, "
+            "identify entry points, and extract concrete technology/dependency evidence "
+            "from package and configuration files."
         ),
         llm=llm,
         tools=[
@@ -200,6 +197,28 @@ def generate_technical_docs(
             extract_entry_points,
             read_key_files,
         ],
+        verbose=True,
+    )
+
+    architecture_designer = Agent(
+        role="Architecture and Flow Documentation Specialist",
+        goal="Create accurate architecture and flow diagrams with clear component and data movement explanations.",
+        backstory=(
+            "You are a systems architect focused on turning repository analysis into "
+            "clear Mermaid diagrams and concise technical narratives for engineers and testers."
+        ),
+        llm=llm,
+        verbose=True,
+    )
+
+    documentation_compiler = Agent(
+        role="Technical Documentation Compiler",
+        goal="Assemble complete, well-structured, test-ready markdown documentation from all prior analysis outputs.",
+        backstory=(
+            "You are an expert technical writer who consolidates multi-stage engineering "
+            "analysis into complete documentation with consistent structure and no missing sections."
+        ),
+        llm=llm,
         verbose=True,
     )
 
@@ -221,7 +240,7 @@ def generate_technical_docs(
             "- Key files and their purposes\n"
             "- High-level component organization"
         ),
-        agent=doc_analyst,
+        agent=repo_analyst,
     )
 
     # Task 2: Analyze tech stack and dependencies
@@ -246,7 +265,7 @@ def generate_technical_docs(
             "- Cloud/infrastructure tools\n"
             "- Complete dependency list with descriptions"
         ),
-        agent=doc_analyst,
+        agent=repo_analyst,
         context=[clone_task],
     )
 
@@ -271,7 +290,7 @@ def generate_technical_docs(
             "- Data flow diagram (Mermaid)\n"
             "- Descriptions of each component's purpose"
         ),
-        agent=doc_analyst,
+        agent=architecture_designer,
         context=[clone_task, stack_task],
     )
 
@@ -295,7 +314,7 @@ def generate_technical_docs(
             "- Application initialization flow (Mermaid)\n"
             "- Flow descriptions and key decision points"
         ),
-        agent=doc_analyst,
+        agent=architecture_designer,
         context=[clone_task, stack_task],
     )
 
@@ -327,12 +346,12 @@ def generate_technical_docs(
             "- Configuration and setup information\n"
             "- All information suitable for test case generation"
         ),
-        agent=doc_analyst,
+        agent=documentation_compiler,
         context=[clone_task, stack_task, architecture_task, flow_task],
     )
 
     crew = Crew(
-        agents=[doc_analyst],
+        agents=[repo_analyst, architecture_designer, documentation_compiler],
         tasks=[clone_task, stack_task, architecture_task, flow_task, compile_task],
         process=Process.sequential,
         verbose=True,
