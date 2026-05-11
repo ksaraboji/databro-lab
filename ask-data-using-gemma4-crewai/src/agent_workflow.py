@@ -67,9 +67,22 @@ def get_openrouter_base_url() -> str:
     return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 
+def get_ollama_api_key() -> str | None:
+    # Kept for backward compatibility with existing env files; Ollama local calls do not require it.
+    return os.getenv("OLLAMA_API_KEY")
+
+
+def get_ollama_model_name() -> str:
+    return os.getenv("OLLAMA_MODEL_NAME", "gemma4:latest")
+
+
+def get_ollama_base_url() -> str:
+    return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+
 def get_default_llm_backend() -> str:
     backend = os.getenv("LLM_BACKEND", "huggingface").strip().lower()
-    return backend if backend in {"huggingface", "openrouter"} else "huggingface"
+    return backend if backend in {"huggingface", "openrouter", "ollama"} else "huggingface"
 
 
 def get_max_tokens() -> int:
@@ -86,6 +99,12 @@ def resolve_llm_config(llm_backend: str | None = None, model_override: str | Non
         model_name = (model_override or get_openrouter_model_name()).strip()
         return model_name, get_openrouter_api_key(), get_openrouter_base_url()
 
+    if backend == "ollama":
+        model_name = (model_override or get_ollama_model_name()).strip()
+        if not model_name.startswith("ollama/"):
+            model_name = f"ollama/{model_name}"
+        return model_name, None, get_ollama_base_url()
+
     model_name = (model_override or get_hf_model_name()).strip()
     if model_name.startswith("huggingface/"):
         model_name = model_name.removeprefix("huggingface/")
@@ -100,20 +119,30 @@ def run_agentic_query(
 ) -> str:
     _ensure_counter_callbacks()
 
+    backend = (llm_backend or get_default_llm_backend()).strip().lower()
+
     model_name, api_key, base_url = resolve_llm_config(
-        llm_backend=llm_backend,
+        llm_backend=backend,
         model_override=model_override,
     )
     max_tokens = get_max_tokens()
 
-    llm = LLM(
-        model=model_name,
-        api_key=api_key,
-        base_url=base_url,
-        provider="openai",
-        temperature=0,
-        max_tokens=max_tokens,
-    )
+    if backend == "ollama":
+        llm = LLM(
+            model=model_name,
+            base_url=base_url,
+            temperature=0,
+            max_tokens=max_tokens,
+        )
+    else:
+        llm = LLM(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            provider="openai",
+            temperature=0,
+            max_tokens=max_tokens,
+        )
 
     analyst = Agent(
         role="DuckDB Data Analyst",
@@ -141,6 +170,7 @@ def run_agentic_query(
         expected_output=(
             "A JSON object containing:\n"
             "- file_type: the detected format (csv, json, ndjson, parquet, or arrow)\n"
+            "- row_count: exact total number of rows in the uploaded file\n"
             "- schema: a list of columns with name and type\n"
             "Do not include anything else."
         ),
@@ -156,6 +186,8 @@ def run_agentic_query(
             "User question: {user_query}\n\n"
             "The file schema is provided in the context from the previous task.\n"
             "Based on the user's intent, choose exactly ONE of the following paths:\n\n"
+            "For any question about number of rows/records/entries/count, you MUST compute the exact value using SQL "
+            "`SELECT COUNT(*) AS row_count FROM data` and report that result. Never estimate counts from previews.\n\n"
             "If the user explicitly asks for head rows, a preview, a sample, or the first 10 rows,\n"
             "include the first 10 rows in the final response using a markdown table.\n\n"
             "PATH A — Format conversion:\n"
@@ -179,6 +211,7 @@ def run_agentic_query(
             "- Chosen path (A, B, or C) and why\n"
             "- SQL query used (if applicable)\n"
             "- Query result as a markdown table (Path C) or confirmation with download file path (Path A/B)\n"
+            "- Any count in the answer must come from SQL COUNT(*) output, not estimates\n"
             "- If requested, include a first-10-row preview as a markdown table"
         ),
         agent=analyst,

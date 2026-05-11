@@ -4,7 +4,7 @@ This spike is a fully agentic data chat prototype using:
 
 - Gradio UI
 - CrewAI agent framework
-- Hugging Face Router or OpenRouter (selectable in UI)
+- Hugging Face Router, OpenRouter, or local Ollama (selectable in UI)
 - DuckDB execution tool
 - Content-based file detection and format conversion
 
@@ -15,7 +15,7 @@ This spike is a fully agentic data chat prototype using:
 3. The workflow runs in two sequential CrewAI tasks:
 	- Task 1 inspects the file and returns the detected format plus schema.
 	- Task 2 uses that schema to decide whether to analyze, export, or convert.
-4. Agent sends the user query + schema context to the selected LLM backend (Hugging Face Router or OpenRouter).
+4. Agent sends the user query + schema context to the selected LLM backend (Hugging Face Router, OpenRouter, or local Ollama).
 5. Agent either generates DuckDB SQL or chooses a direct file conversion path.
 6. Agent decides how to execute based on intent:
 	- Returns table results for analytical questions.
@@ -43,7 +43,7 @@ No rule-based query routing or custom fallback logic is implemented.
 
 ## LLM Backend Selection
 
-The app supports two LLM backends, selectable directly in the Gradio UI:
+The app supports three LLM backends, selectable directly in the Gradio UI:
 
 ### Hugging Face Router
 - **Default models**: `google/gemma-4-31B-it`, `google/gemma-4-26B-A4B-it`
@@ -57,9 +57,16 @@ The app supports two LLM backends, selectable directly in the Gradio UI:
 - **Rate limits**: Per-account limits; typically higher throughput than HF Router
 - **UI behavior**: Select `openrouter` in the **LLM Backend** dropdown, then pick a model from the **Model Name** dropdown
 
+### Ollama (Local)
+- **Default models**: `gemma4:latest`, `gemma4:e2b-it-q4_K_M`
+- **Why use it**: Fully local inference, no external API calls
+- **Rate limits**: None from a hosted provider (limited by your machine resources)
+- **UI behavior**: Select `ollama` in the **LLM Backend** dropdown, then pick a local model from the **Model Name** dropdown
+- **Requirements**: Run Ollama locally and pull the model first
+
 **Switching backends in the UI**:
 1. Upload a file.
-2. Open the **LLM Backend** dropdown and select `huggingface` or `openrouter`.
+2. Open the **LLM Backend** dropdown and select `huggingface`, `openrouter`, or `ollama`.
 3. The **Model Name** dropdown automatically updates to show models available for that backend.
 4. (Optional) Override the model if you want a different variant.
 5. Send your query. The agent will use the selected backend and model for that request.
@@ -80,7 +87,7 @@ Each task may trigger multiple LLM API attempts due to internal reasoning, retry
 - Schema task: 1–2 API calls (inspect + validation)
 - Execution task: 2–3 API calls (planning + execution + fallback)
 
-**Result**: A typical single user query can trigger **4–6 API calls** total. This aligns with what you see on provider dashboards (Hugging Face Router or OpenRouter API logs).
+**Result**: A typical single user query can trigger **4–6 API calls** total. This aligns with what you see on provider dashboards (Hugging Face Router/OpenRouter) or local call attempts when using Ollama.
 
 ### Example
 
@@ -136,6 +143,20 @@ OPENROUTER_MODEL_NAME=google/gemma-4-31b-it:free
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
+**Ollama (local)** (required if using Ollama):
+```bash
+OLLAMA_API_KEY=ollama
+OLLAMA_MODEL_NAME=gemma4:latest
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+Pull local models before running:
+
+```bash
+ollama pull gemma4:latest
+ollama pull gemma4:e2b-it-q4_K_M
+```
+
 You can configure both backends and switch between them in the UI, or just configure the one(s) you plan to use.
 
 4. Start the app:
@@ -149,7 +170,7 @@ Open http://localhost:7860 in your browser.
 ### Using the app
 
 - **Upload a file**: Select CSV, JSON, NDJSON, Parquet, or Arrow format.
-- **Choose backend & model**: Use the **LLM Backend** and **Model Name** dropdowns to select your preferred LLM backend.
+- **Choose backend & model**: Use the **LLM Backend** and **Model Name** dropdowns to select Hugging Face, OpenRouter, or local Ollama.
 - **Ask questions**: Type your query in the chat box and press Enter. The agent will inspect the file schema and answer.
 - **Track API usage**: Watch the **Call Counter** to see how many LLM API calls were made (typically 4–6 per query).
 - **Follow-up questions**: Ask multiple questions on the same file without re-uploading.
@@ -184,10 +205,11 @@ Copy `.env.example` to `.env` and fill in your credentials for at least one back
 cp .env.example .env
 
 # Edit and configure:
-# - LLM_BACKEND (huggingface or openrouter)
+# - LLM_BACKEND (huggingface, openrouter, or ollama)
 # - LLM_MAX_TOKENS (shared token limit)
 # - HF_API_TOKEN, HF_MODEL_NAME, HF_BASE_URL (Hugging Face)
 # - OPENROUTER_API_KEY, OPENROUTER_MODEL_NAME, OPENROUTER_BASE_URL (OpenRouter)
+# - OLLAMA_API_KEY, OLLAMA_MODEL_NAME, OLLAMA_BASE_URL (Ollama local)
 ```
 
 See [Setup](#setup) above for complete configuration details.

@@ -7,6 +7,7 @@ This repository is a container for multiple spike projects and prototypes.
 | Spike | Folder | Summary | README |
 | --- | --- | --- | --- |
 | Ask Data Using Gemma4 + CrewAI | `ask-data-using-gemma4-crewai/` | Agentic data chat prototype built with Gradio, CrewAI, DuckDB, and Hugging Face Gemma. | [Open](ask-data-using-gemma4-crewai/README.md) |
+| Repo → Technical Docs Agent | `repo-to-docs-agent/` | Generates comprehensive technical documentation from GitHub repositories using CrewAI. Includes architecture diagrams, flow diagrams, tech stack analysis, and dependency info in Markdown. | [Open](repo-to-docs-agent/README.md) |
 
 ## Working With A Prototype
 

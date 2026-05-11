@@ -199,7 +199,8 @@ def inspect_data_file(file_path: str) -> str:
             source_sql, params = _source_sql(file_type, file_path)
             connection.execute(f"CREATE TEMP TABLE data AS {source_sql}", params)
         
-        dataframe = connection.execute("SELECT * FROM data").fetchdf()
+        preview_df = connection.execute("SELECT * FROM data LIMIT 10").fetchdf()
+        row_count = int(connection.execute("SELECT COUNT(*) FROM data").fetchone()[0])
         schema_rows = connection.execute("DESCRIBE data").fetchall()
         schema = [
             {
@@ -212,8 +213,9 @@ def inspect_data_file(file_path: str) -> str:
         return json.dumps(
             {
                 "file_type": file_type,
+                "row_count": row_count,
                 "schema": schema,
-                "head": _format_head_preview(dataframe),
+                "head": _format_head_preview(preview_df),
             },
             indent=2,
         )
